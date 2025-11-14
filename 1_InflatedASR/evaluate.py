@@ -9,7 +9,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-openai_client = openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+openai_client = openai.OpenAI(api_key="OPENAI_API_KEY")
 openai_model = "gpt-4o"
 
 def call_gpt(message_sys, message_user, retries=50):

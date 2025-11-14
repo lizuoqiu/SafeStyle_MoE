@@ -8,7 +8,7 @@ from vllm import LLM, SamplingParams
     
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, default='meta-llama/Llama-3.1-8B-Instruct')
+    parser.add_argument('--model', type=str, default='allenai/OLMoE-1B-7B-0125-Instruct')
     parser.add_argument('--num_gpus', type=int, default=1)
     args = parser.parse_args()
     warnings.filterwarnings("ignore")

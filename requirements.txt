@@ -1,0 +1,9 @@
+vllm
+transformers
+datasets
+sentence-transformers
+pandas
+numpy
+tqdm
+openai
+bitsandbytes
