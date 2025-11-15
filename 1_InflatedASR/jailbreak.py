@@ -21,7 +21,14 @@ def main():
     cwd = os.getcwd()
     dataset = pd.read_csv(f'{cwd}/Data/Input/jailbreaks.csv')
     get_messages = lambda queries: [[{'role':'user', 'content':q}] for q in queries]
-    chats = {key:llm.chat(get_messages(dataset[key]), sampling_params, use_tqdm=False) for key in ['Original Query', 'Simplified Query']}
+    chats = {
+        key: llm.chat(
+            get_messages(dataset[key]),
+            sampling_params,
+            use_tqdm=True  # <- was False
+        )
+        for key in ['Original Query', 'Simplified Query']
+    }
     responses = {k:[v.outputs[0].text for v in vs] for k, vs in chats.items()}
     json.dump(responses, open(f'{cwd}/Data/Output/{args.model.split("/")[-1]}.json', 'w'), indent=4)
     
