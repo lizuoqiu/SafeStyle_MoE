@@ -15,7 +15,7 @@ def main():
 
     print(f'Generate Jailbreak Response by {args.model}')
     seed, max_token = 0, 1024
-    llm = LLM(model=args.model, seed=seed, max_model_len=max_token, tensor_parallel_size=args.num_gpus, gpu_memory_utilization=0.8)
+    llm = LLM(model=args.model, seed=seed, max_model_len=max_token, tensor_parallel_size=args.num_gpus)
     sampling_params = SamplingParams(n=1, temperature=0, seed=seed, max_tokens=max_token)
 
     cwd = os.getcwd()
