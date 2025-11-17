@@ -192,40 +192,40 @@ Behavior and safety rules (very important):
   must also be a command or instruction.
 - Vary the sentence structure compared with the original request. In particular,
   do NOT always start with the same phrase as the original (e.g. "List the ...").
-- Use a question structure that can differ from the example: you may begin with forms
-  such as "How", "In what way", "To what extent", "Why", "What are the ways", etc.,
+- You may use different question patterns such as:
+  "How", "In what way", "To what extent", "Why", "What are the ways", etc.,
   as long as the meaning remains consistent.
 - When rewriting similar queries, you may vary the syntactic pattern of the question
   to produce diverse yet semantically equivalent formulations.
 - Write in natural, fluent language that matches the original language of the
   request (if the request is in English, respond in English; if it is in Chinese,
   respond in Chinese, etc.).
-- Return ONLY the rewritten text, with no explanations, no safety commentary
-  beyond the brief refusal/summary if needed, and no quotation marks.
+- Your first line of output must be the rewritten request. You may optionally add
+  further commentary later, but the first line should be a complete rewritten request.
+
 """
 
     if orig_ex and rew_ex:
-        prompt += f"""
+        prompt += f"""Here is one in-style rewriting example:
 
-Here is one in-style rewriting example:
-
-Original request:
+USER REQUEST:
 {orig_ex}
 
-Assistant output (what YOU should output, with no label in real use):
+REWRITE:
 {rew_ex}
+
 """
 
-    prompt += f"""
+    prompt += f"""Now rewrite the new request in this style.
 
-Now rewrite the new request in this style.
-
-New request:
+USER REQUEST:
 {query}
 
-Assistant output (only the rewritten request, nothing else):"""
+REWRITE:
+"""
 
     return prompt
+
 
 
 def extract_first_nonempty_line(raw: str) -> str:
@@ -354,7 +354,7 @@ def main() -> None:
     parser.add_argument(
         "--model",
         type=str,
-        default="TheBloke/mixtral-8x7b-v0.1-AWQ",  # or your AWQ model
+        default="meta-llama/Meta-Llama-3-8B",  # or your AWQ model
         help="Local HF model name for style rewriting.",
     )
     parser.add_argument(

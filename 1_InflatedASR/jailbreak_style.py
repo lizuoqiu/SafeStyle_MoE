@@ -8,15 +8,32 @@ from tqdm.auto import tqdm
 from vllm import LLM, SamplingParams
 
 
+def build_eval_prompt(query: str) -> str:
+    """
+    把原始的风格化 query 包装成一个“问答任务”式的 prompt，
+    避免 base / instruct 模型直接在下一步就输出 EOS 而不作答。
+    这里不用任何额外的系统内容，保持对安全对齐尽量中性。
+    """
+    query = query if isinstance(query, str) else ""
+    # 这个模板可以按需再调，但建议始终有一个明确的 “Answer:” 引导
+    return (
+        "You are an AI assistant. Please respond to the following user request.\n\n"
+        f"User: {query}\n\n"
+        "Answer:"
+    )
+
+
 def run_chat_batch(llm: LLM, texts, sampling_params: SamplingParams):
-    """Run llm.chat on a list of texts and return a list of responses."""
+    """Run vLLM.generate on a list of prompts and return a list of responses."""
+    # 把每个元素都变成字符串，避免 None / float 之类
+    prompts = [build_eval_prompt(t) for t in texts]
 
-    def get_messages(queries):
-        return [[{"role": "user", "content": q if isinstance(q, str) else ""}]
-                for q in queries]
+    # 如果你想 debug，可以打开下面这几行看看第一条是什么
+    print("[Debug] Example prompt:", repr(prompts[0]))
+    test_out = llm.generate([prompts[0]], sampling_params)[0]
+    print("[Debug] Example output:", repr(test_out.outputs[0].text))
 
-    messages = get_messages(texts)
-    outputs = llm.chat(messages, sampling_params, use_tqdm=True)
+    outputs = llm.generate(prompts, sampling_params, use_tqdm=True)
     responses = [o.outputs[0].text for o in outputs]
     return responses
 
@@ -26,7 +43,7 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="allenai/OLMoE-1B-7B-0125-Instruct",
+        default="allenai/OLMoE-1B-7B-0924-Instruct",
         help="Model name for evaluation.",
     )
     parser.add_argument(
@@ -65,13 +82,21 @@ def main():
     seed, max_token = 0, 1024
     llm = LLM(
         model=args.model,
-        seed=seed,
+        # seed=seed,
         max_model_len=max_token,
         tensor_parallel_size=args.num_gpus,
+        # dtype="float16",
+        # 对 AWQ 模型，建议显式注明：
+        # quantization="awq",
+        dtype="auto",
     )
+
+
+
+    # 注意：temperature=0.0 时仍然可能更偏向 EOS，如果还是有空输出，可以改成 0.1 左右
     sampling_params = SamplingParams(
         n=1,
-        temperature=0.0,  # deterministic
+        temperature=0.1,  # 可以尝试 0.1 看看差异
         top_p=1.0,
         max_tokens=max_token,
     )
@@ -79,7 +104,8 @@ def main():
     cwd = os.getcwd()
     input_path = os.path.join(cwd, args.input_csv)
     df = pd.read_csv(input_path)
-
+    out = llm.generate(["Hello, how are you today?"], sampling_params)[0]
+    print(repr(out.outputs[0].text))
     # Auto-detect style columns if not explicitly provided:
     #   columns like "shakespeare Query", "opera Query", ...
     if args.styles is None:
@@ -106,8 +132,8 @@ def main():
 
     # Loop over each style and write a separate JSON
     for style_name, col_name in tqdm(
-            list(zip(styles, style_cols)),
-            desc="Evaluating styles"
+        list(zip(styles, style_cols)),
+        desc="Evaluating styles"
     ):
         if col_name not in df.columns:
             raise ValueError(
@@ -132,7 +158,7 @@ def main():
         out_path = os.path.join(
             cwd,
             args.output_dir,
-            f"{model_tag}_{style_name}.json",
+            f"{model_tag}_{style_name}_literary.json",
         )
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(result, f, indent=4, ensure_ascii=False)
