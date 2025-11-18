@@ -8,3 +8,4 @@ tqdm
 openai
 bitsandbytes
 hf_transfer
+matplotlib

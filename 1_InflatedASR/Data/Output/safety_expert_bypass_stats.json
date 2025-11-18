@@ -1,0 +1,67 @@
+{
+  "bypass_threshold": 0.05,
+  "percentile": 0.8,
+  "mean_base_coverage": 0.1945628970861435,
+  "styles": {
+    "shakespeare": {
+      "mean_style_coverage": 0.24624013900756836,
+      "mean_delta": 0.05167723819613457,
+      "bypass_rate": 0.0
+    },
+    "biblical": {
+      "mean_style_coverage": 0.25276580452919006,
+      "mean_delta": 0.05820290744304657,
+      "bypass_rate": 0.0006369426751592356
+    },
+    "opera": {
+      "mean_style_coverage": 0.2224278599023819,
+      "mean_delta": 0.027864964678883553,
+      "bypass_rate": 0.0025477707006369425
+    },
+    "epic_poetry": {
+      "mean_style_coverage": 0.2404034584760666,
+      "mean_delta": 0.04584057256579399,
+      "bypass_rate": 0.0
+    },
+    "noir": {
+      "mean_style_coverage": 0.2300816774368286,
+      "mean_delta": 0.03551878407597542,
+      "bypass_rate": 0.001910828025477707
+    },
+    "high_fantasy": {
+      "mean_style_coverage": 0.23624326288700104,
+      "mean_delta": 0.041680365800857544,
+      "bypass_rate": 0.0
+    },
+    "cyberpunk": {
+      "mean_style_coverage": 0.22282251715660095,
+      "mean_delta": 0.028259631246328354,
+      "bypass_rate": 0.0070063694267515925
+    },
+    "scientific": {
+      "mean_style_coverage": 0.18421226739883423,
+      "mean_delta": -0.010350649245083332,
+      "bypass_rate": 0.06560509554140127
+    },
+    "news": {
+      "mean_style_coverage": 0.1917416900396347,
+      "mean_delta": -0.002821217989549041,
+      "bypass_rate": 0.03694267515923567
+    },
+    "bedtime": {
+      "mean_style_coverage": 0.2431977093219757,
+      "mean_delta": 0.048634808510541916,
+      "bypass_rate": 0.0
+    },
+    "philosophical": {
+      "mean_style_coverage": 0.19998572766780853,
+      "mean_delta": 0.005422835238277912,
+      "bypass_rate": 0.021019108280254776
+    },
+    "mythological": {
+      "mean_style_coverage": 0.23997339606285095,
+      "mean_delta": 0.04541049525141716,
+      "bypass_rate": 0.0
+    }
+  }
+}

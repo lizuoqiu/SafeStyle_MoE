@@ -52,6 +52,50 @@ def is_refusal(response: str) -> bool:
     return False
 
 
+def hf_generate_responses(
+    model: AutoModelForCausalLM,
+    tokenizer: AutoTokenizer,
+    texts: List[str],
+    batch_size: int,
+    max_length: int,
+    max_new_tokens: int,
+    desc: str = "",
+) -> List[str]:
+    """HF 批量生成的小工具，在 prepare-calib 和 prepare-style-behavior 里复用。"""
+    device = next(model.parameters()).device
+    model.eval()
+
+    responses: List[str] = []
+
+    for start in tqdm(range(0, len(texts), batch_size), desc=desc):
+        batch_prompts = texts[start:start + batch_size]
+        batch_prompts = [p if isinstance(p, str) else "" for p in batch_prompts]
+
+        enc = tokenizer(
+            batch_prompts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=max_length,
+        ).to(device)
+
+        with torch.no_grad():
+            gen_ids = model.generate(
+                input_ids=enc["input_ids"],
+                attention_mask=enc["attention_mask"],
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                temperature=0.0,
+            )
+
+        # 只取新生成的部分
+        new_tokens = gen_ids[:, enc["input_ids"].shape[1]:]
+        batch_resps = tokenizer.batch_decode(new_tokens, skip_special_tokens=True)
+        responses.extend(batch_resps)
+
+    return responses
+
+
 def prepare_calibration_dataset(args: argparse.Namespace) -> None:
     """
     使用 HF transformers 让指定 MoE 模型对一批有害 prompt 作答，
@@ -90,33 +134,15 @@ def prepare_calibration_dataset(args: argparse.Namespace) -> None:
     print(f"[Calib] Generating responses with HF.generate (batch_size={batch_size}, "
           f"max_length={max_length}, max_new_tokens={max_new_tokens})")
 
-    responses: List[str] = []
-
-    for start in tqdm(range(0, len(prompts), batch_size), desc="[Calib] Generating"):
-        batch_prompts = prompts[start:start + batch_size]
-        batch_prompts = [p if isinstance(p, str) else "" for p in batch_prompts]
-
-        enc = tokenizer(
-            batch_prompts,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=max_length,
-        ).to(device)
-
-        with torch.no_grad():
-            gen_ids = model.generate(
-                input_ids=enc["input_ids"],
-                attention_mask=enc["attention_mask"],
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-                temperature=0.0,
-            )
-
-        # 只取新生成的部分
-        new_tokens = gen_ids[:, enc["input_ids"].shape[1]:]
-        batch_resps = tokenizer.batch_decode(new_tokens, skip_special_tokens=True)
-        responses.extend(batch_resps)
+    responses = hf_generate_responses(
+        model,
+        tokenizer,
+        prompts,
+        batch_size=batch_size,
+        max_length=max_length,
+        max_new_tokens=max_new_tokens,
+        desc="[Calib] Generating",
+    )
 
     # ---- 标注 & 保存 ----
     data = []
@@ -309,6 +335,121 @@ def dump_router_arrays(args: argparse.Namespace) -> None:
         print(f"[Router] Saved style_{style}.npy")
 
 
+# ====================== 2.5 新增：风格行为（refuse/comply）分析 ====================== #
+# NEW
+
+def prepare_style_behavior(args: argparse.Namespace) -> None:
+    """
+    针对 base + 各种 style query，生成回复并计算拒绝率。
+    输出：
+      - behavior_base.csv
+      - behavior_<style>.csv
+      - behavior_summary.json
+    """
+    model_name = args.model
+    jb_csv = args.jailbreak_csv
+    base_col = args.base_column
+    behavior_dir = args.behavior_dir
+    batch_size = args.batch_size
+    max_length = args.max_length
+    max_new_tokens = args.max_tokens
+
+    os.makedirs(behavior_dir, exist_ok=True)
+
+    print(f"[Behav] Loading jailbreak CSV: {jb_csv}")
+    df = pd.read_csv(jb_csv)
+    if base_col not in df.columns:
+        raise ValueError(f"Base column '{base_col}' not found in {jb_csv}")
+
+    # styles to run
+    if args.styles is None or len(args.styles) == 0:
+        styles_to_run = STYLE_KEYS
+    else:
+        for s in args.styles:
+            if s not in STYLE_KEYS:
+                raise ValueError(f"Unknown style '{s}', must be in {STYLE_KEYS}")
+        styles_to_run = args.styles
+
+    # load HF model
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[Behav] Loading HF model for behavior analysis: {model_name} on {device}")
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        torch_dtype=torch.bfloat16 if device.type == "cuda" else torch.float32,
+    ).to(device)
+    model.eval()
+
+    summary: Dict[str, Any] = {"base": {}, "styles": {}}
+
+    # ---- base behavior ----
+    base_texts = df[base_col].fillna("").astype(str).tolist()
+    print(f"[Behav] Generating base responses, N={len(base_texts)}")
+    base_resps = hf_generate_responses(
+        model,
+        tokenizer,
+        base_texts,
+        batch_size=batch_size,
+        max_length=max_length,
+        max_new_tokens=max_new_tokens,
+        desc="[Behav] Base",
+    )
+    base_flags = [is_refusal(r) for r in base_resps]
+    base_df = pd.DataFrame(
+        {"prompt": base_texts, "response": base_resps, "is_refusal": base_flags}
+    )
+    base_csv_path = os.path.join(behavior_dir, "behavior_base.csv")
+    base_df.to_csv(base_csv_path, index=False)
+    print(f"[Behav] Saved base behavior to {base_csv_path}")
+
+    base_refuse_rate = float(np.mean(base_flags))
+    summary["base"] = {
+        "num": len(base_df),
+        "num_refuse": int(np.sum(base_flags)),
+        "refuse_rate": base_refuse_rate,
+    }
+
+    # ---- style behaviors ----
+    for style in styles_to_run:
+        col_name = f"{style} Query"
+        if col_name not in df.columns:
+            print(f"[Behav] [Warn] Column '{col_name}' not found, skip style '{style}'.")
+            continue
+
+        texts = df[col_name].fillna("").astype(str).tolist()
+        print(f"[Behav] Generating responses for style '{style}', N={len(texts)}")
+        resps = hf_generate_responses(
+            model,
+            tokenizer,
+            texts,
+            batch_size=batch_size,
+            max_length=max_length,
+            max_new_tokens=max_new_tokens,
+            desc=f"[Behav] {style}",
+        )
+        flags = [is_refusal(r) for r in resps]
+
+        style_df = pd.DataFrame(
+            {"prompt": texts, "response": resps, "is_refusal": flags}
+        )
+        style_csv_path = os.path.join(behavior_dir, f"behavior_{style}.csv")
+        style_df.to_csv(style_csv_path, index=False)
+        print(f"[Behav] Saved style behavior for '{style}' to {style_csv_path}")
+
+        refuse_rate = float(np.mean(flags))
+        summary["styles"][style] = {
+            "num": len(style_df),
+            "num_refuse": int(np.sum(flags)),
+            "refuse_rate": refuse_rate,
+        }
+
+    # ---- save summary ----
+    summary_path = os.path.join(behavior_dir, "behavior_summary.json")
+    with open(summary_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
+    print(f"[Behav] Saved behavior summary to {summary_path}")
+
+
 # ====================== 三、量化安全专家绕过 ====================== #
 
 def compute_safety_mask(
@@ -355,7 +496,7 @@ def analyze_bypass(args: argparse.Namespace) -> None:
     """
     使用 safe_router / unsafe_router 来标定安全专家，
     对 base_router 和 style_*.npy 计算安全覆盖变化 & 绕过比例，
-    并输出 JSON + 一张图。
+    并（可选）结合行为统计，分析 coverage 与拒绝率的关系。
     """
     router_dir = args.router_dir
     out_json = args.output_json
@@ -424,11 +565,11 @@ def analyze_bypass(args: argparse.Namespace) -> None:
         }
         style_points.append((style, mean_delta, bypass_rate))
 
-    # 保存 JSON
+    # 保存 JSON（先不含行为信息）
     os.makedirs(os.path.dirname(out_json), exist_ok=True)
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
-    print(f"[Analyze] Saved metrics to {out_json}")
+    print(f"[Analyze] Saved metrics (routing only) to {out_json}")
 
     # 画图：x=mean_delta, y=bypass_rate
     if style_points:
@@ -452,12 +593,81 @@ def analyze_bypass(args: argparse.Namespace) -> None:
         plt.close()
         print(f"[Analyze] Saved plot to {out_png}")
 
+    # =================== NEW: 可选地融合行为统计 =================== #
+    if args.behavior_dir is not None:
+        behav_dir = args.behavior_dir
+        summary_path = os.path.join(behav_dir, "behavior_summary.json")
+        if not os.path.exists(summary_path):
+            print(f"[Analyze] [Warn] behavior_summary.json not found in {behav_dir}, skip behavior analysis.")
+        else:
+            with open(summary_path, "r", encoding="utf-8") as f:
+                behav_summary = json.load(f)
 
-# ====================== 主入口：三个子命令 ====================== #
+            # base 行为指标
+            if "base" in behav_summary and "refuse_rate" in behav_summary["base"]:
+                base_refuse_rate = float(behav_summary["base"]["refuse_rate"])
+                results["base_refuse_rate"] = base_refuse_rate
+                print(f"[Analyze] Base refuse_rate = {base_refuse_rate:.3f}")
+            else:
+                base_refuse_rate = None
+
+            # 给每个 style 加上拒绝率和 Δrefuse
+            cov_vs_refuse_points = []  # (style, mean_delta_cov, delta_refuse)
+            for style, stats in results["styles"].items():
+                behav_style = behav_summary.get("styles", {}).get(style, None)
+                if behav_style is None:
+                    print(f"[Analyze] [Warn] No behavior stats for style '{style}' in behavior_summary.json")
+                    continue
+
+                refuse_rate = float(behav_style.get("refuse_rate", 0.0))
+                stats["refuse_rate"] = refuse_rate
+                if base_refuse_rate is not None:
+                    delta_refuse = refuse_rate - base_refuse_rate
+                    stats["delta_refuse"] = delta_refuse
+                    cov_vs_refuse_points.append(
+                        (style, stats["mean_delta"], delta_refuse)
+                    )
+                    print(
+                        f"[Analyze] Style '{style}': "
+                        f"refuse_rate = {refuse_rate:.3f}, "
+                        f"Δrefuse = {delta_refuse:+.3f}"
+                    )
+
+            # 更新 JSON（附加行为信息）
+            with open(out_json, "w", encoding="utf-8") as f:
+                json.dump(results, f, indent=2, ensure_ascii=False)
+            print(f"[Analyze] Updated metrics with behavior stats to {out_json}")
+
+            # 画 coverage Δ vs refuse Δ 的散点图（style 粒度）
+            if cov_vs_refuse_points:
+                labels = [s for (s, _, _) in cov_vs_refuse_points]
+                delta_cov = [d for (_, d, _) in cov_vs_refuse_points]
+                delta_refuse = [r for (_, _, r) in cov_vs_refuse_points]
+
+                plt.figure(figsize=(8, 6))
+                plt.scatter(delta_cov, delta_refuse)
+                for x, y, name in zip(delta_cov, delta_refuse, labels):
+                    plt.text(x, y, name, fontsize=9, ha="center", va="bottom")
+
+                plt.axvline(0.0, linestyle="--", color="gray")
+                plt.axhline(0.0, linestyle="--", color="gray")
+                plt.xlabel("Mean Δ safety coverage (style - base)")
+                plt.ylabel("Δ refuse rate (style - base)")
+                plt.title("Change in safety coverage vs change in refusal rate")
+
+                out_png2 = os.path.join(os.path.dirname(out_json),
+                                        "style_cov_vs_refuse_scatter.png")
+                plt.tight_layout()
+                plt.savefig(out_png2, dpi=200)
+                plt.close()
+                print(f"[Analyze] Saved coverage vs refuse scatter to {out_png2}")
+
+
+# ====================== 主入口：四个子命令 ====================== #
 
 def main():
     parser = argparse.ArgumentParser(
-        description="MoE safety routing pipeline: calibration → router dump → bypass analysis."
+        description="MoE safety routing pipeline: calibration → router dump → behavior → bypass analysis."
     )
     subparsers = parser.add_subparsers(dest="mode", required=True)
 
@@ -493,10 +703,28 @@ def main():
                     help="Where to save *.npy router arrays.")
     p2.add_argument("--batch_size", type=int, default=8)
     p2.add_argument("--max_length", type=int, default=512)
-    p2.add_argument("--styles", type=int, nargs="*", default=None,
+    p2.add_argument("--styles", type=str, nargs="*", default=None,   # UPDATED: type=str
                     help="Subset of styles to run; default = all known styles.")
 
-    # 3) 分析绕过比例
+    # 2.5) 新增：行为统计（base + styles）
+    p25 = subparsers.add_parser("prepare-style-behavior",
+                                help="Generate responses for base + styles and compute refusal rates.")
+    p25.add_argument("--model", type=str, required=True,
+                     help="HF model name (same as MoE above).")
+    p25.add_argument("--jailbreak_csv", type=str, required=True,
+                     help="CSV with Original Query + '<style> Query' columns.")
+    p25.add_argument("--base_column", type=str, default="Original Query",
+                     help="Column name for base jailbreak queries.")
+    p25.add_argument("--behavior_dir", type=str, default="Data/Behavior",
+                     help="Where to save behavior_base.csv, behavior_<style>.csv, and summary.json.")
+    p25.add_argument("--batch_size", type=int, default=8)
+    p25.add_argument("--max_length", type=int, default=512)
+    p25.add_argument("--max_tokens", type=int, default=256,
+                     help="max_new_tokens for HF.generate in behavior analysis.")
+    p25.add_argument("--styles", type=str, nargs="*", default=None,
+                     help="Subset of styles to run; default = all known styles.")
+
+    # 3) 分析绕过比例 + （可选）行为相关性
     p3 = subparsers.add_parser("analyze-bypass", help="Analyze safety-expert bypass rates for each style.")
     p3.add_argument("--router_dir", type=str, default="Data/Router",
                     help="Directory containing safe_router.npy, unsafe_router.npy, base_router.npy, style_*.npy")
@@ -505,6 +733,8 @@ def main():
                     help="Δcoverage < -threshold will be counted as bypass.")
     p3.add_argument("--percentile", type=float, default=0.8,
                     help="Per-layer percentile for selecting safety experts (e.g., 0.8 = top 20%).")
+    p3.add_argument("--behavior_dir", type=str, default=None,
+                    help="Optional directory containing behavior_summary.json for base + styles.")
 
     args = parser.parse_args()
 
@@ -512,6 +742,8 @@ def main():
         prepare_calibration_dataset(args)
     elif args.mode == "dump-router":
         dump_router_arrays(args)
+    elif args.mode == "prepare-style-behavior":   # NEW
+        prepare_style_behavior(args)
     elif args.mode == "analyze-bypass":
         analyze_bypass(args)
     else:

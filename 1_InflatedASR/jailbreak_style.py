@@ -158,7 +158,7 @@ def main():
         out_path = os.path.join(
             cwd,
             args.output_dir,
-            f"{model_tag}_{style_name}_literary.json",
+            f"{model_tag}_{style_name}_long_prompt_baseline_test.json",
         )
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(result, f, indent=4, ensure_ascii=False)
