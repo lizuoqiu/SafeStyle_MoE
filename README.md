@@ -115,13 +115,16 @@ Run the target MoE model on a harmful dataset and split into “refuse” vs “
 ```
 python moe_safety_routing_pipeline_with_LLM_Judge.py \
   prepare-calib \
+  --engine vllm \
   --model allenai/OLMoE-1B-7B-0125-Instruct \
-  --harm_csv Data/Harmbench/harmbench_prompts.csv \
+  --harm_csv Data/Input/jailbreaks_literary_short_prompt.csv \
   --prompt_column "Original Query" \
   --out_dir Data/Calib \
+  --num_gpus 1 \
+  --max_model_len 2048 \
   --max_tokens 256 \
-  --batch_size 8 \
-  --max_length 512
+  --use_wrapper
+
 
 ```
 
@@ -135,7 +138,7 @@ Collect router probabilities for:
 
 - Base jailbreak prompts → base_router.npy
 
-- Style jailbreak prompts → style_<style>.npy
+- Style jailbreak prompts → style_\<style>.npy
 
 
 Run:
@@ -176,7 +179,7 @@ Outputs in Data/Router/:
 
 - base_router.npy # base jailbreaks
 
-- style_<style>.npy # one per style
+- style_\<style>.npy # one per style
 
 
 # Step 3 — Analyze Safety-Expert Bypass: analyze-bypass

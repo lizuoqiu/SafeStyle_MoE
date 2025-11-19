@@ -258,7 +258,7 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="allenai/OLMoE-1B-7B-0924-Instruct",
+        default="Qwen/Qwen1.5-MoE-A2.7B-Chat",
         help="MoE model name (must support output_router_logits).",
     )
     parser.add_argument(
@@ -304,7 +304,7 @@ def main():
     parser.add_argument(
         "--output_json",
         type=str,
-        default="Data/Output/moe_routing_style_analysis.json",
+        default="Data/Output/Qwen_Qwen1.5-MoE-A2.7B-Chat/moe_routing_style_analysis.json",
         help="Where to save the aggregated metrics.",
     )
     args = parser.parse_args()

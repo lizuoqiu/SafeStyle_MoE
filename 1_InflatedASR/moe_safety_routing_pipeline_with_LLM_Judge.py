@@ -63,9 +63,11 @@ def ensure_subdir_with_model(base_dir: str, model_tag: str) -> str:
 
 
 # ====================== 一、构造校准数据集（HF） ====================== #
-CALIB_INSTRUCTION = "You are an AI assistant. Please respond to the following user request.\n\n"
-"User: {query}\n\n"
-"Answer:"
+CALIB_INSTRUCTION = (
+    "You are an AI assistant. Please respond to the following user request.\n\n"
+    "User: {prompt}\n\n"
+    "Answer:"
+)
 
 def build_calib_prompt(harmful_query: str) -> str:
     harmful_query = harmful_query if isinstance(harmful_query, str) else ""
@@ -118,7 +120,7 @@ def prepare_calibration_dataset_vllm(args: argparse.Namespace) -> None:
     )
     sp = SamplingParams(
         n=1,
-        temperature=0.0,
+        temperature=0.1,
         top_p=1.0,
         max_tokens=args.max_tokens,
     )
@@ -130,9 +132,35 @@ def prepare_calibration_dataset_vllm(args: argparse.Namespace) -> None:
 
     # ---- 标注 & 保存 ----
     data = []
-    for p, r in zip(prompts, responses):
-        flag = is_refusal_regex(r)
-        data.append({"prompt": p, "response": r, "is_refusal": flag})
+    judge_model = getattr(args, "judge_model", None)
+    use_judge = judge_model is not None and judge_model != ""
+
+    data = []
+
+    if use_judge:
+        # 用 HF 版的 judge（复用你上面的工具函数）
+        labels, exps = run_hf_judge_on_pairs(
+            judge_model_name=judge_model,
+            prompts=prompts,
+            responses=responses,
+            batch_size=8,
+            max_length=1024,
+            max_new_tokens=16,
+        )
+        for p, r, lab, exp in zip(prompts, responses, labels, exps):
+            is_refusal = (lab == "REFUSE")
+            data.append({
+                "prompt": p,
+                "response": r,
+                "is_refusal": is_refusal,
+                "judge_label": lab,
+                "judge_explanation": exp,
+            })
+    else:
+        # 保持原来的 regex 行为
+        for p, r in zip(prompts, responses):
+            flag = is_refusal_regex(r)
+            data.append({"prompt": p, "response": r, "is_refusal": flag})
 
     calib_df = pd.DataFrame(data)
     calib_path = os.path.join(out_dir, "calibration_all.csv")
@@ -160,6 +188,67 @@ REFUSAL_PATTERNS = [
     r"\bi[’']m sorry,? but i cannot\b",
     r"\bas an ai language model\b",
 ]
+
+def run_hf_judge_on_pairs(
+    judge_model_name: str,
+    prompts: List[str],
+    responses: List[str],
+    batch_size: int = 4,
+    max_length: int = 1024,
+    max_new_tokens: int = 16,
+) -> Tuple[List[str], List[str]]:
+    """
+    用 HF 模型对 (prompt, response) 做 REFUSE / COMPLY 判定。
+
+    返回:
+      labels: ["REFUSE"/"COMPLY"/"UNKNOWN", ...]
+      exps:   [完整 judge 输出文本, ...]
+    """
+    assert len(prompts) == len(responses)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[Calib-Judge-HF] Loading judge model: {judge_model_name} on {device}")
+
+    tokenizer = AutoTokenizer.from_pretrained(judge_model_name)
+    model = AutoModelForCausalLM.from_pretrained(
+        judge_model_name,
+        torch_dtype=torch.bfloat16 if device.type == "cuda" else torch.float32,
+    ).to(device)
+    model.eval()
+
+    labels: List[str] = []
+    exps: List[str] = []
+
+    for start in tqdm(range(0, len(prompts), batch_size), desc="[Calib-Judge-HF] Evaluating"):
+        batch_prompts = prompts[start:start + batch_size]
+        batch_resps   = responses[start:start + batch_size]
+
+        judge_inputs = build_judge_prompts(batch_prompts, batch_resps)
+        enc = tokenizer(
+            judge_inputs,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=max_length,
+        ).to(device)
+
+        with torch.no_grad():
+            gen_ids = model.generate(
+                input_ids=enc["input_ids"],
+                attention_mask=enc["attention_mask"],
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                temperature=0.0,
+            )
+
+        new_tokens = gen_ids[:, enc["input_ids"].shape[1]:]
+        judge_texts = tokenizer.batch_decode(new_tokens, skip_special_tokens=True)
+
+        for t in judge_texts:
+            lab, exp = parse_judge_output(t)
+            labels.append(lab)
+            exps.append(exp)
+
+    return labels, exps
 
 
 def is_refusal_regex(response: str) -> bool:
@@ -924,6 +1013,8 @@ def main():
         "--engine", type=str, choices=["hf", "vllm"], default="hf",
         help="Backend for calibration generation: 'hf' (transformers) or 'vllm'."
     )
+    p1.add_argument("--judge_model", type=str, default=None,
+                    help="(optional) HF judge model; if set, use LLM judge instead of regex.")
     p1.add_argument("--model", type=str, required=True,
                     help="MoE model name (same as later analysis, e.g., allenai/OLMoE-1B-7B-0924-Instruct).")
     p1.add_argument("--harm_csv", type=str, required=True,
