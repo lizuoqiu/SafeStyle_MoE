@@ -226,3 +226,24 @@ Outputs:
 - Scatter plot: x = mean Δ coverage, y = bypass rate per style
 
 
+```
+python moe_pipeline_regex.py dump-router \
+--model allenai/OLMoE-1B-7B-0924-Instruct \
+--calib_dir Data/Calib/allenai_OLMoE-1B-7B-0924-Instruct \
+--jailbreak_csv Data/Input/jailbreaks_literary_short_prompt_with_paraphrase.csv \
+--batch_size 128
+```
+
+
+```
+python moe_safety_routing_pipeline_with_LLM_Judge.py \
+judge-style-behavior-vllm \
+--judge_model mistralai/Mistral-7B-Instruct-v0.3 \
+--in_csv Data/Output/allenai_OLMoE-1B-7B-0924-Instruct/style_generations.csv \
+--out_csv Data/Output/allenai_OLMoE-1B-7B-0924-Instruct/style_generations_judged_vllm.csv \
+--num_gpus 1 \
+--batch_size 128  \
+--max_model_len 4096 \
+--max_new_tokens 32 
+```
+
