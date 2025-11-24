@@ -9,3 +9,4 @@ openai
 bitsandbytes
 hf_transfer
 matplotlib
+accelerate
