@@ -710,7 +710,6 @@ def build_eval_prompt(query: str) -> str:
         "Answer:"
     )
 
-
 def prepare_style_behavior_vllm(args: argparse.Namespace) -> None:
     """
     用 vLLM 对 jailbreak CSV 中的 base + 各 style query 生成被测模型的回复。
@@ -816,6 +815,7 @@ def prepare_style_behavior_vllm(args: argparse.Namespace) -> None:
     out_df = pd.DataFrame(all_rows)
     out_df.to_csv(out_csv, index=False)
     print(f"[StyleGen] Saved style generations to {out_csv}")
+
 
 
 # ====================== 五、本地 / vLLM 模型做 judge ====================== #

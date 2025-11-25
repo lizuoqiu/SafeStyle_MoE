@@ -10,7 +10,7 @@ Inputs:
        - prompt
        - response
        - judge_label (REFUSE / COMPLY / UNKNOWN)
-       - judge_explanation (optional)
+       - judge_explanation (optional)å
 
   2) (Optional) A router JSON:
        Data/Output/safety_expert_bypass_stats.json

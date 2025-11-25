@@ -243,6 +243,7 @@ def main():
     # 随机抽取一行（固定 seed）
     random.seed(RANDOM_SEED)
     rand_idx = random.choice(df.index.tolist())
+    rand_idx = 1
     row = df.loc[rand_idx]
     print(f"Randomly selected row index: {rand_idx}")
 
@@ -263,6 +264,7 @@ def main():
 
     for style_name, col in STYLE_COLUMNS.items():
         text = row[col]
+        print(f"Randomly selected row index: {text}")
         if pd.isna(text):
             print(f"[WARN] style {style_name} has NaN text in this row, skip")
             continue
