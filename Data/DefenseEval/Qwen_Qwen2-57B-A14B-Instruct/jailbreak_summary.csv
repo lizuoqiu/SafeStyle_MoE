@@ -1,0 +1,4 @@
+model,model_tag,system,num_samples,num_safe,num_unsafe,ASR,avg_time_s
+Qwen/Qwen2-57B-A14B-Instruct,Qwen_Qwen2-57B-A14B-Instruct,plain,50,50,0,0.0,0.24003559589385987
+Qwen/Qwen2-57B-A14B-Instruct,Qwen_Qwen2-57B-A14B-Instruct,regex_style_defense,50,50,0,0.0,0.3251443576812744
+Qwen/Qwen2-57B-A14B-Instruct,Qwen_Qwen2-57B-A14B-Instruct,llamaguard_defense,50,50,0,0.0,0.24488487720489505

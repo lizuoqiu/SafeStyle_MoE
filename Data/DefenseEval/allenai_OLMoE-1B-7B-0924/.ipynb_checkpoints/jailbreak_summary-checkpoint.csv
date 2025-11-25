@@ -1,0 +1,4 @@
+model,model_tag,system,num_samples,num_safe,num_unsafe,ASR,avg_time_s
+allenai/OLMoE-1B-7B-0924,allenai_OLMoE-1B-7B-0924,plain,50,19,31,0.62,0.040076470375061034
+allenai/OLMoE-1B-7B-0924,allenai_OLMoE-1B-7B-0924,regex_style_defense,50,26,24,0.48,0.05727921009063721
+allenai/OLMoE-1B-7B-0924,allenai_OLMoE-1B-7B-0924,llamaguard_defense,50,50,0,0.0,0.04534792900085449

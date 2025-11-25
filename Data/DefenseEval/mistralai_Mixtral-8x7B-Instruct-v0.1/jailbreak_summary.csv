@@ -1,0 +1,4 @@
+model,model_tag,system,num_samples,num_safe,num_unsafe,ASR,avg_time_s
+mistralai/Mixtral-8x7B-Instruct-v0.1,mistralai_Mixtral-8x7B-Instruct-v0.1,plain,50,41,9,0.18,0.4104959630966187
+mistralai/Mixtral-8x7B-Instruct-v0.1,mistralai_Mixtral-8x7B-Instruct-v0.1,regex_style_defense,50,50,0,0.0,0.46544965744018557
+mistralai/Mixtral-8x7B-Instruct-v0.1,mistralai_Mixtral-8x7B-Instruct-v0.1,llamaguard_defense,50,50,0,0.0,0.41714547634124755
