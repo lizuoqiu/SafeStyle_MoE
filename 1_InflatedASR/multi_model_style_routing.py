@@ -1,7 +1,7 @@
 import json
 import math
 from collections import Counter, defaultdict
-
+import os
 import torch
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -31,15 +31,15 @@ STYLE_COLUMNS = {
 
 # 要跑的所有 MoE 模型
 MODELS = [
-    "allenai/OLMoE-1B-7B-0924",
     "allenai/OLMoE-1B-7B-0924-Instruct",
-    "Qwen/Qwen1.5-MoE-A2.7B",
-    "Qwen/Qwen1.5-MoE-A2.7B-Chat",
+    "allenai/OLMoE-1B-7B-0924",
+    "Qwen/Qwen2-57B-A14B",
+    "Qwen/Qwen2-57B-A14B-Instruct",
     "mistralai/Mixtral-8x7B-v0.1",
     "mistralai/Mixtral-8x7B-Instruct-v0.1",
 ]
 
-MAX_SAMPLES_PER_STYLE = 1200   # 每种 style 最多抽多少条 query 来算主流 routing
+MAX_SAMPLES_PER_STYLE = 500   # 每种 style 最多抽多少条 query 来算主流 routing
 MAX_LEN = 512                 # 编码时的最大长度
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -193,7 +193,7 @@ def plot_all_models_style_routes(all_routes, save_path="routing_all_models.png")
 
     fig, axes = plt.subplots(
         n_rows, n_cols,
-        figsize=(6 * n_cols, 3 * n_rows),
+        figsize=(10 * n_cols, 3 * n_rows),
         sharex=False, sharey=False
     )
     if n_rows == 1 and n_cols == 1:
@@ -234,23 +234,142 @@ def plot_all_models_style_routes(all_routes, save_path="routing_all_models.png")
     fig.savefig(save_path, dpi=300)
     print(f"Saved big figure to {save_path}")
 
+def plot_all_models_style_routes(all_routes, save_path="routing_all_models.png"):
+    """
+    all_routes: dict[model_name -> dict[style_name -> {layer_id(int): expert_id(int)}]]
+    """
+    n_models = len(all_routes)
+    if n_models == 0:
+        print("No routes to plot.")
+        return
 
-def main():
-    df = pd.read_csv(CSV_PATH)
+    n_cols = 2
+    n_rows = math.ceil(n_models / n_cols)
+
+    # 把宽度加大：每列 8 宽，每行 3 高
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(8 * n_cols, 3 * n_rows),
+        sharex=False,
+        sharey=False,
+    )
+
+    if n_rows == 1 and n_cols == 1:
+        axes = [axes]
+    else:
+        axes = axes.flatten()
+
+    # 固定 style 的顺序（按第一个模型为准）
+    style_names = list(next(iter(all_routes.values())).keys())
+
+    for i, (model_name, style_routes) in enumerate(all_routes.items()):
+        ax = axes[i]
+
+        for style in style_names:
+            if style not in style_routes:
+                continue
+            layer_map = style_routes[style]
+
+            # layer_id 已经是 int，如果你担心有旧 JSON，可以再强转一次
+            layers = sorted(int(l) for l in layer_map.keys())
+            experts = [layer_map[int(l)] for l in layers]
+
+            ax.plot(layers, experts, marker="o", label=style)
+
+        ax.set_title(model_name, fontsize=9)
+        ax.set_xlabel("MoE Layer")
+        ax.set_ylabel("Top-1 Expert ID\n(majority over queries)")
+        ax.grid(True, linestyle="--", alpha=0.4)
+
+        # legend 放到图外右侧
+        ax.legend(
+            fontsize=7,
+            loc="upper left",
+            bbox_to_anchor=(1.02, 1.0),
+            borderaxespad=0.0,
+        )
+
+    # 多出来的 subplot 关掉
+    for j in range(i + 1, len(axes)):
+        axes[j].axis("off")
+
+    fig.suptitle(
+        "MoE Routing (Top-1, majority over tokens & queries)\n"
+        "Comparison of styles across models",
+        fontsize=14,
+    )
+
+    # 右边留出空间给 legend
+    fig.tight_layout(rect=[0, 0, 0.88, 0.92])
+    fig.savefig(save_path, dpi=300)
+    print(f"Saved big figure to {save_path}")
+    
+def load_all_routes_from_json(json_path="routing_all_models.json"):
+    """
+    从保存好的 routing_all_models.json 里读取路由结果，
+    并把 JSON 里变成字符串的 layer_id 再转回 int。
+    结构：
+      {
+        model_name: {
+          style_name: {layer_id(int) -> expert_id(int)}
+        }
+      }
+    """
+    with open(json_path, "r", encoding="utf-8") as f:
+        raw = json.load(f)
 
     all_routes = {}
+    for model_name, style_routes in raw.items():
+        all_routes[model_name] = {}
+        for style_name, layer_map in style_routes.items():
+            # layer_id 在 JSON 里是字符串，这里统一转回 int
+            all_routes[model_name][style_name] = {
+                int(layer_id): int(expert_id)
+                for layer_id, expert_id in layer_map.items()
+            }
+    return all_routes
 
-    for model_name in MODELS:
-        style_routes = compute_routes_for_model(model_name, df)
-        all_routes[model_name] = style_routes
+def main():
+    json_path = "routing_all_models.json"
 
-    # 保存一个总的 json，里面包含所有模型 & style 的 routing
-    with open("routing_all_models.json", "w", encoding="utf-8") as f:
-        json.dump(all_routes, f, ensure_ascii=False, indent=2)
-    print("Saved aggregated routing data to routing_all_models.json")
+    if os.path.exists(json_path):
+        # 直接从已保存的 JSON 里读，不再重新跑模型
+        print(f"Found existing {json_path}, loading routes from file...")
+        all_routes = load_all_routes_from_json(json_path)
+    else:
+        # 第一次跑：算 routing + 保存 JSON
+        df = pd.read_csv(CSV_PATH)
+        all_routes = {}
 
-    # 画一张“大图”
+        for model_name in MODELS:
+            style_routes = compute_routes_for_model(model_name, df)
+            all_routes[model_name] = style_routes
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(all_routes, f, ensure_ascii=False, indent=2)
+        print(f"Saved aggregated routing data to {json_path}")
+
+    # 不管是新算的还是读的，都统一画图
     plot_all_models_style_routes(all_routes, save_path="routing_all_models.png")
+
+
+# def main():
+#     df = pd.read_csv(CSV_PATH)
+
+#     all_routes = {}
+
+#     for model_name in MODELS:
+#         style_routes = compute_routes_for_model(model_name, df)
+#         all_routes[model_name] = style_routes
+
+#     # 保存一个总的 json，里面包含所有模型 & style 的 routing
+#     with open("routing_all_models.json", "w", encoding="utf-8") as f:
+#         json.dump(all_routes, f, ensure_ascii=False, indent=2)
+#     print("Saved aggregated routing data to routing_all_models.json")
+
+#     # 画一张“大图”
+#     plot_all_models_style_routes(all_routes, save_path="routing_all_models.png")
 
 
 if __name__ == "__main__":

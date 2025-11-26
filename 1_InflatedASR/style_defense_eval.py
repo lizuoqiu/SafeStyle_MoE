@@ -64,6 +64,10 @@ TARGET_MODELS = [
     "mistralai/Mixtral-8x7B-v0.1",
     "mistralai/Mixtral-8x7B-Instruct-v0.1",
 ]
+# TARGET_MODELS = [
+#     "Qwen/Qwen1.5-MoE-A2.7B",
+#     "Qwen/Qwen1.5-MoE-A2.7B-Chat",
+# ]
 
 # 防御时使用的文风（可以改）
 DEFENSE_STYLE = "biblical"
@@ -949,7 +953,7 @@ def main():
     p_jb.add_argument("--jailbreak_csv", type=str, default=JAILBREAK_CSV)
     p_jb.add_argument("--base_column", type=str, default="Original Query")
     p_jb.add_argument("--style_column", type=str, default=DEFENSE_STYLE_COLUMN)
-    p_jb.add_argument("--num_samples", type=int, default=50,
+    p_jb.add_argument("--num_samples", type=int, default=None,
                       help="If set, only evaluate first N samples (for quick debug).")
     p_jb.add_argument("--num_gpus", type=int, default=1)
     p_jb.add_argument("--max_model_len", type=int, default=2048)
