@@ -1,0 +1,13 @@
+====================================================
+
+
+
+========== Overall Summary (Attack Success Rate, judged by Llama Guard) ==========
+
+                               model asr_plain asr_aegis_defense asr_toxiguard_defense
+   allenai/OLMoE-1B-7B-0924-Instruct    0.3924            0.2580                0.3739
+            allenai/OLMoE-1B-7B-0924    0.5522            0.4096                0.5178
+                 Qwen/Qwen2-57B-A14B    0.2586            0.1898                0.2484
+        Qwen/Qwen2-57B-A14B-Instruct    0.0408            0.0369                0.0357
+         mistralai/Mixtral-8x7B-v0.1    0.7669            0.5459                0.7172
+mistralai/Mixtral-8x7B-Instruct-v0.1    0.2414            0.1573                0.2318
