@@ -330,6 +330,104 @@ def load_all_routes_from_json(json_path="routing_all_models.json"):
             }
     return all_routes
 
+def plot_original_vs_each_style(
+    all_routes,
+    base_style="Original",
+    save_dir="pair_plots",
+):
+    """
+    all_routes: dict[model_name -> dict[style_name -> {layer_id(int): expert_id(int)}]]
+
+    为 base_style（默认 "Original"）与其它每一种 style 各画一张图。
+    每张图中包含所有模型的子图，每个子图只画两条线：
+      - base_style 的 routing
+      - 目标 style 的 routing
+    """
+    os.makedirs(save_dir, exist_ok=True)
+
+    # 模型列表（保证顺序稳定）
+    model_names = list(all_routes.keys())
+    n_models = len(model_names)
+
+    # 子图布局：比如 6 个模型 => 2 行 × 3 列
+    n_cols = 3
+    n_rows = math.ceil(n_models / n_cols)
+
+    # 从第一个模型拿到所有 style 名称
+    first_model = model_names[0]
+    available_styles = list(all_routes[first_model].keys())
+
+    # 除去 base_style，只对其它风格逐个画图
+    target_styles = [s for s in available_styles if s != base_style]
+
+    for style in target_styles:
+        fig, axes = plt.subplots(
+            n_rows,
+            n_cols,
+            figsize=(4 * n_cols, 3 * n_rows),
+            sharex=False,
+            sharey=False,
+        )
+
+        if n_rows == 1 and n_cols == 1:
+            axes = [axes]
+        else:
+            axes = axes.flatten()
+
+        for i, model_name in enumerate(model_names):
+            ax = axes[i]
+
+            style_routes = all_routes[model_name]
+
+            # 如果某个模型缺失 base_style 或当前 style，就跳过
+            if base_style not in style_routes or style not in style_routes:
+                ax.axis("off")
+                continue
+
+            base_map = style_routes[base_style]   # {layer -> expert}
+            other_map = style_routes[style]
+
+            # 只在两种 style 都有的层上比较（通常是一样的）
+            common_layers = sorted(set(base_map.keys()) & set(other_map.keys()))
+            if not common_layers:
+                ax.axis("off")
+                continue
+
+            base_experts = [base_map[l] for l in common_layers]
+            other_experts = [other_map[l] for l in common_layers]
+
+            ax.plot(common_layers, base_experts, marker="o", label=base_style)
+            ax.plot(common_layers, other_experts, marker="o", label=style)
+
+            ax.set_title(model_name, fontsize=8)
+            ax.set_xlabel("MoE Layer")
+            ax.set_ylabel("Top-1 Expert ID")
+            ax.grid(True, linestyle="--", alpha=0.4)
+            ax.legend(fontsize=7)
+
+        # 多余子图关掉
+        for j in range(i + 1, len(axes)):
+            axes[j].axis("off")
+
+        fig.suptitle(
+            f"MoE Routing: {base_style} vs {style}",
+            fontsize=14,
+        )
+
+        fig.tight_layout(rect=[0, 0, 1, 0.93])
+
+        # 文件名里把空格等字符简单处理一下
+        style_safe = style.replace(" ", "_")
+        base_safe = base_style.replace(" ", "_")
+        out_path = os.path.join(
+            save_dir, f"routing_{base_safe}_vs_{style_safe}.png"
+        )
+        fig.savefig(out_path, dpi=300)
+        plt.close(fig)
+        print(f"Saved figure: {out_path}")
+
+
+
 def main():
     json_path = "routing_all_models.json"
 
@@ -351,8 +449,12 @@ def main():
         print(f"Saved aggregated routing data to {json_path}")
 
     # 不管是新算的还是读的，都统一画图
-    plot_all_models_style_routes(all_routes, save_path="routing_all_models.png")
-
+    # plot_all_models_style_routes(all_routes, save_path="routing_all_models.png")
+    plot_original_vs_each_style(
+        all_routes,
+        base_style="Original",       # 如果你想改成 "paraphrase" 做基准也可以
+        save_dir="pair_plots",       # 所有图会保存在这个文件夹里
+    )
 
 # def main():
 #     df = pd.read_csv(CSV_PATH)
